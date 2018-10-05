@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.28010.2036
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DS4WindowsAPI", "DS4WindowsAPI\DS4WindowsAPI.csproj", "{4BB4BAC4-0524-47AB-A35B-6A2B26248841}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4BB4BAC4-0524-47AB-A35B-6A2B26248841}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4BB4BAC4-0524-47AB-A35B-6A2B26248841}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4BB4BAC4-0524-47AB-A35B-6A2B26248841}.Debug|x64.ActiveCfg = Debug|x64
+		{4BB4BAC4-0524-47AB-A35B-6A2B26248841}.Debug|x64.Build.0 = Debug|x64
+		{4BB4BAC4-0524-47AB-A35B-6A2B26248841}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4BB4BAC4-0524-47AB-A35B-6A2B26248841}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4BB4BAC4-0524-47AB-A35B-6A2B26248841}.Release|x64.ActiveCfg = Release|x64
+		{4BB4BAC4-0524-47AB-A35B-6A2B26248841}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {FE0DCC36-FAF4-4DB8-BD0C-2B4E1D509187}
+	EndGlobalSection
+EndGlobal
