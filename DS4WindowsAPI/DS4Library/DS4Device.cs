@@ -122,6 +122,8 @@ namespace DS4Windows
         internal const int BATTERY_MAX = 8;
         internal const int BATTERY_MAX_USB = 11;
         public const string blankSerial = "00:00:00:00:00:00";
+        private const string SONYWA_AUDIO_SEARCHNAME = "DUALSHOCK®4 USB Wireless Adaptor";
+        private const string RAIJU_TE_AUDIO_SEARCHNAME = "Razer Raiju Tournament Edition Wired";
         private HidDevice hDevice;
         private string Mac;
         private DS4State cState = new DS4State();
@@ -239,6 +241,7 @@ namespace DS4Windows
         public object removeLocker = new object();
 
         public string MacAddress =>  Mac;
+        public event EventHandler MacAddressChanged;
         public string getMacAddress()
         {
             return this.Mac;
@@ -275,12 +278,15 @@ namespace DS4Windows
         }
 
         public int Battery => battery;
+        public delegate void BatteryUpdateHandler(object sender, EventArgs e);
+        public event EventHandler BatteryChanged;
         public int getBattery()
         {
             return battery;
         }
 
         public bool Charging => charging;
+        public event EventHandler ChargingChanged;
         public bool isCharging()
         {
             return charging;
@@ -321,6 +327,24 @@ namespace DS4Windows
         public byte getLeftHeavySlowRumble()
         {
             return currentHap.RumbleMotorStrengthLeftHeavySlow;
+        }
+
+
+        private int rumbleAutostopTime = 0;
+        public int RumbleAutostopTime
+        {
+            get { return rumbleAutostopTime; }
+            set
+            {
+                // Value in milliseconds
+                rumbleAutostopTime = value;
+
+                // If autostop timer is disabled (value 0) then stop existing autostop timer otherwise restart it
+                if (value <= 0)
+                    rumbleAutostopTimer.Reset();
+                else
+                    rumbleAutostopTimer.Restart();
+            }
         }
 
         public DS4Color LightBarColor
@@ -397,14 +421,17 @@ namespace DS4Windows
         private bool timeoutEvent = false;
         private bool runCalib;
         private bool hasInputEvts = false;
+        private string displayName;
+        public string DisplayName => displayName;
         public bool ShouldRunCalib()
         {
             return runCalib;
         }
 
-        public DS4Device(HidDevice hidDevice)
+        public DS4Device(HidDevice hidDevice, string disName)
         {
             hDevice = hidDevice;
+            displayName = disName;
             conType = HidConnectionType(hDevice);
             Mac = hDevice.readSerial();
             runCalib = true;
@@ -422,9 +449,17 @@ namespace DS4Windows
                         audio = new DS4Audio();
                         micAudio = new DS4Audio(DS4Library.CoreAudio.DataFlow.Capture);
                     }
-                    else if (tempAttr.VendorId == 0x146B)
+                    else if (tempAttr.VendorId == 0x146B && (tempAttr.ProductId == 0x0D01 || tempAttr.ProductId == 0x0D02))
                     {
+                        // The old logic didn't run gyro calibration for any of the Nacon gamepads. Nowadays there are Nacon gamepads with full PS4 compatible gyro, so skip the calibration only for old Nacon devices (is that skip even necessary?)
                         runCalib = false;
+                    }
+                    else if (tempAttr.VendorId == DS4Devices.RAZER_VID &&
+                        tempAttr.ProductId == 0x1007)
+                    {
+                        audio = new DS4Audio(searchName: RAIJU_TE_AUDIO_SEARCHNAME);
+                        micAudio = new DS4Audio(DS4Library.CoreAudio.DataFlow.Capture,
+                        RAIJU_TE_AUDIO_SEARCHNAME);
                     }
 
                     synced = true;
@@ -432,8 +467,9 @@ namespace DS4Windows
                 else
                 {
                     warnInterval = WARN_INTERVAL_BT;
-                    audio = new DS4Audio();
-                    micAudio = new DS4Audio(DS4Library.CoreAudio.DataFlow.Capture);
+                    audio = new DS4Audio(searchName: SONYWA_AUDIO_SEARCHNAME);
+                    micAudio = new DS4Audio(DS4Library.CoreAudio.DataFlow.Capture,
+                        SONYWA_AUDIO_SEARCHNAME);
                     runCalib = synced = isValidSerial();
                 }
             }
@@ -449,7 +485,6 @@ namespace DS4Windows
 
             touchpad = new DS4Touchpad();
             sixAxis = new DS4SixAxis();
-            Crc32Algorithm.InitializeTable(DefaultPolynomial);
             if (runCalib)
                 RefreshCalibration();
 
@@ -511,6 +546,11 @@ namespace DS4Windows
                 }
 
                 sixAxis.setCalibrationData(ref calibration, conType == ConnectionType.USB);
+
+                /*if (hDevice.Attributes.ProductId == 0x5C4 && hDevice.Attributes.VendorId == 0x054C &&
+                    sixAxis.fixupInvertedGyroAxis())
+                    AppLogger.LogToGui($"Automatically fixed inverted YAW gyro axis in DS4 v.1 BT gamepad ({Mac.ToString()})", false);
+                    */
             }
             else
             {
@@ -610,6 +650,8 @@ namespace DS4Windows
                 return hDevice.WriteOutputReportViaInterrupt(outReportBuffer, READ_STREAM_TIMEOUT);
             }
         }
+
+        private readonly Stopwatch rumbleAutostopTimer = new Stopwatch(); // Autostop timer to stop rumble motors if those are stuck in a rumble state
 
         private byte outputPendCount = 0;
         private readonly Stopwatch standbySw = new Stopwatch();
@@ -715,7 +757,7 @@ namespace DS4Windows
 
 
         const int BT_INPUT_REPORT_CRC32_POS = BT_OUTPUT_REPORT_LENGTH - 4; //last 4 bytes of the 78-sized input report are crc32
-        const uint DefaultPolynomial = 0xedb88320u;
+        public const uint DefaultPolynomial = 0xedb88320u;
         uint HamSeed = 2351727372;
 
         private unsafe void performDs4Input()
@@ -739,6 +781,7 @@ namespace DS4Windows
 
                 int maxBatteryValue = 0;
                 int tempBattery = 0;
+                bool tempCharging = charging;
                 uint tempStamp = 0;
                 double elapsedDeltaTime = 0.0;
                 uint tempDelta = 0;
@@ -916,13 +959,26 @@ namespace DS4Windows
                     tempByte = inputReport[7];
                     cState.PS = (tempByte & (1 << 0)) != 0;
                     cState.TouchButton = (tempByte & 0x02) != 0;
+                    cState.TouchButton = (tempByte & 0x02) != 0;
                     cState.FrameCounter = (byte)(tempByte >> 2);
 
                     tempByte = inputReport[30];
-                    charging = (tempByte & 0x10) != 0;
+                    tempCharging = (tempByte & 0x10) != 0;
+                    if (tempCharging != charging)
+                    {
+                        charging = tempCharging;
+                        ChargingChanged?.Invoke(this, EventArgs.Empty);
+                    }
+
                     maxBatteryValue = charging ? BATTERY_MAX_USB : BATTERY_MAX;
                     tempBattery = (tempByte & 0x0f) * 100 / maxBatteryValue;
-                    battery = Math.Min((byte)tempBattery, (byte)100);
+                    tempBattery = Math.Min(tempBattery, 100);
+                    if (tempBattery != battery)
+                    {
+                        battery = tempBattery;
+                        BatteryChanged?.Invoke(this, EventArgs.Empty);
+                    }
+
                     cState.Battery = (byte)battery;
                     //System.Diagnostics.Debug.WriteLine("CURRENT BATTERY: " + (inputReport[30] & 0x0f) + " | " + tempBattery + " | " + battery);
                     if (tempByte != priorInputReport30)
@@ -1211,6 +1267,13 @@ namespace DS4Windows
                     }
                 }
 
+                if (rumbleAutostopTimer.IsRunning)
+                {
+                    // Workaround to a bug in ViGem driver. Force stop potentially stuck rumble motor on the next output report if there haven't been new rumble events within X seconds
+                    if (rumbleAutostopTimer.ElapsedMilliseconds >= rumbleAutostopTime)
+                        setRumble(0, 0);
+                }
+
                 if (synchronous)
                 {
                     if (output || haptime)
@@ -1400,6 +1463,15 @@ namespace DS4Windows
             testRumble.RumbleMotorStrengthRightLightFast = rightLightFastMotor;
             testRumble.RumbleMotorStrengthLeftHeavySlow = leftHeavySlowMotor;
             testRumble.RumbleMotorsExplicitlyOff = rightLightFastMotor == 0 && leftHeavySlowMotor == 0;
+
+            // If rumble autostop timer (msecs) is enabled for this device then restart autostop timer everytime rumble is modified (or stop the timer if rumble is set to zero)
+            if (rumbleAutostopTime > 0)
+            {
+                if (testRumble.RumbleMotorsExplicitlyOff)
+                    rumbleAutostopTimer.Reset();   // Stop an autostop timer because ViGem driver sent properly a zero rumble notification
+                else
+                    rumbleAutostopTimer.Restart(); // Start an autostop timer to stop potentially stuck rumble motor because of lost rumble notification events from ViGem driver
+            }
         }
 
         private void MergeStates()
@@ -1504,6 +1576,7 @@ namespace DS4Windows
             {
                 Mac = tempMac;
                 SerialChange?.Invoke(this, EventArgs.Empty);
+                MacAddressChanged?.Invoke(this, EventArgs.Empty);
             }
         }
 

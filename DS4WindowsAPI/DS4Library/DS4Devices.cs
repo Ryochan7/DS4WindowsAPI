@@ -11,10 +11,12 @@ namespace DS4Windows
     {
         public readonly int vid;
         public readonly int pid;
-        internal VidPidInfo(int vid, int pid)
+        public readonly string name;
+        internal VidPidInfo(int vid, int pid, string name = "Generic DS4")
         {
             this.vid = vid;
             this.pid = pid;
+            this.name = name;
         }
     }
 
@@ -33,17 +35,31 @@ namespace DS4Windows
         internal const int NACON_VID = 0x146B;
         internal const int HORI_VID = 0x0F0D;
 
+        // https://support.steampowered.com/kb_article.php?ref=5199-TOKV-4426&l=english web site has a list of other PS4 compatible device VID/PID values and brand names. 
+        // However, not all those are guaranteed to work with DS4Windows app so support is added case by case when users of DS4Windows app tests non-official DS4 gamepads.
+
         private static VidPidInfo[] knownDevices =
         {
-            new VidPidInfo(SONY_VID, 0xBA0),
-            new VidPidInfo(SONY_VID, 0x5C4),
-            new VidPidInfo(SONY_VID, 0x09CC),
-            new VidPidInfo(RAZER_VID, 0x1000),
-            new VidPidInfo(NACON_VID, 0x0D01),
-            new VidPidInfo(NACON_VID, 0x0D02),
-            new VidPidInfo(HORI_VID, 0x00EE),    // Hori PS4 Mini Wired Gamepad
-            new VidPidInfo(0x7545, 0x0104),
-            new VidPidInfo(0x2E95, 0x7725), // Scuf Vantage gamepad
+            new VidPidInfo(SONY_VID, 0xBA0, "Sony WA"),
+            new VidPidInfo(SONY_VID, 0x5C4, "DS4 v.1"),
+            new VidPidInfo(SONY_VID, 0x09CC, "DS4 v.2"),
+            new VidPidInfo(RAZER_VID, 0x1000, "Razer Raiju PS4"),
+            new VidPidInfo(NACON_VID, 0x0D01, "Nacon Revol Pro v.1"),
+            new VidPidInfo(NACON_VID, 0x0D02, "Nacon Revol Pro v.2"),
+            new VidPidInfo(HORI_VID, 0x00EE, "Hori PS4 Mini"),    // Hori PS4 Mini Wired Gamepad
+            new VidPidInfo(0x7545, 0x0104, "Armor 3 LU Cobra"), // Armor 3 Level Up Cobra
+            new VidPidInfo(0x2E95, 0x7725, "Scuf Vantage"), // Scuf Vantage gamepad
+            new VidPidInfo(0x11C0, 0x4001, "PS4 Fun"), // PS4 Fun Controller
+            new VidPidInfo(RAZER_VID, 0x1007, "Razer Raiju TE"), // Razer Raiju Tournament Edition
+            new VidPidInfo(RAZER_VID, 0x1004, "Razer Raiju UE USB"), // Razer Raiju Ultimate Edition (wired)
+            new VidPidInfo(RAZER_VID, 0x1009, "Razer Raiju UE BT"), // Razer Raiju Ultimate Edition (BT). Doesn't work yet for some reason even when non-steam Razer driver lists the BT Razer Ultimate with this ID.
+            new VidPidInfo(SONY_VID, 0x05C5, "CronusMax (PS4 Mode)"), // CronusMax (PS4 Output Mode)
+            new VidPidInfo(0x0C12, 0x57AB, "Warrior Joypad JS083"), // Warrior Joypad JS083 (wired). Custom lightbar color doesn't work, but everything else works OK (except touchpad and gyro because the gamepad doesnt have those).
+            new VidPidInfo(0x0C12, 0x0E16, "Steel Play MetalTech"), // Steel Play Metaltech P4 (wired)
+            new VidPidInfo(NACON_VID, 0x0D08, "Nacon Revol U Pro"), // Nacon Revolution Unlimited Pro
+            new VidPidInfo(NACON_VID, 0x0D10, "Nacon Revol Infinite"), // Nacon Revolution Infinite (sometimes known as Revol Unlimited Pro v2?). Touchpad, gyro, rumble, "led indicator" lightbar.
+            new VidPidInfo(HORI_VID, 0x0084, "Hori Fighting Cmd"), // Hori Fighting Commander (special kind of gamepad without touchpad or sticks. There is a hardware switch to alter d-pad type between dpad and LS/RS)
+            new VidPidInfo(NACON_VID, 0x0D13, "Nacon Revol Pro v.3"),
         };
 
         private static string devicePathToInstanceId(string devicePath)
@@ -60,12 +76,23 @@ namespace DS4Windows
             return deviceInstanceId;
         }
 
+        /*private static bool IsRealDS4(HidDevice hDevice)
+        {
+            string deviceInstanceId = devicePathToInstanceId(hDevice.DevicePath);
+            string temp = Global.GetDeviceProperty(deviceInstanceId,
+                NativeMethods.DEVPKEY_Device_UINumber);
+            return string.IsNullOrEmpty(temp);
+        }
+        */
+
         // Enumerates ds4 controllers in the system
         public static void findControllers()
         {
             lock (Devices)
             {
                 IEnumerable<HidDevice> hDevices = HidDevices.EnumerateDS4(knownDevices);
+                //hDevices = hDevices.Where(dev => IsRealDS4(dev)).Select(dev => dev);
+                //hDevices = from dev in hDevices where IsRealDS4(dev) select dev;
                 // Sort Bluetooth first in case USB is also connected on the same controller.
                 hDevices = hDevices.OrderBy<HidDevice, ConnectionType>((HidDevice d) => { return DS4Device.HidConnectionType(d); });
 
@@ -85,6 +112,8 @@ namespace DS4Windows
                     else if (DevicePaths.Contains(hDevice.DevicePath))
                         continue; // BT/USB endpoint already open once
 
+                    VidPidInfo metainfo = knownDevices.Single(x => x.vid == hDevice.Attributes.VendorId &&
+                        x.pid == hDevice.Attributes.ProductId);
                     if (!hDevice.IsOpen)
                     {
                         hDevice.OpenDevice(isExclusiveMode);
@@ -149,7 +178,7 @@ namespace DS4Windows
                         }
                         else
                         {
-                            DS4Device ds4Device = new DS4Device(hDevice);
+                            DS4Device ds4Device = new DS4Device(hDevice, metainfo.name);
                             //ds4Device.Removal += On_Removal;
                             if (!ds4Device.ExitOutputThread)
                             {
